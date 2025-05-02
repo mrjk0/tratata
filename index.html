@@ -1,43 +1,4 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="uk">
 <head>
   <meta charset="UTF-8">
@@ -144,20 +105,29 @@
       script.src = src;
       script.async = true;
       script.onload = () => callback(null);
-      script.onerror = () => callback(new Error(`Не вдалося завантажити скрипт: ${src}. Перевірте мережу або блокувальники реклами.`));
+      script.onerror = () => callback(new Error(`Не вдалося завантажити скрипт: ${src}. Перевірте мережу, блокувальники реклами або VPN.`));
       document.head.appendChild(script);
     }
 
     let tonConnect = null;
-    const scriptUrl = 'https://unpkg.com/@tonconnect/sdk@latest/dist/tonconnect-sdk.min.js';
+    const primaryScriptUrl = 'https://cdn.jsdelivr.net/npm/@tonconnect/sdk@latest/dist/tonconnect-sdk.min.js';
+    const fallbackScriptUrl = 'https://unpkg.com/@tonconnect/sdk@latest/dist/tonconnect-sdk.min.js';
 
-    loadScript(scriptUrl, (error) => {
+    loadScript(primaryScriptUrl, (error) => {
       if (error) {
         console.error(error);
-        document.getElementById('error-message').textContent = error.message;
-        document.getElementById('connect-wallet-btn').disabled = true;
-        document.getElementById('send-btn').disabled = true;
-        document.getElementById('wallet-info').textContent = '❌ Помилка завантаження TonConnect SDK';
+        // Спроба завантаження з резервного URL
+        loadScript(fallbackScriptUrl, (fallbackError) => {
+          if (fallbackError) {
+            console.error(fallbackError);
+            document.getElementById('error-message').textContent = fallbackError.message;
+            document.getElementById('connect-wallet-btn').disabled = true;
+            document.getElementById('send-btn').disabled = true;
+            document.getElementById('wallet-info').textContent = '❌ Помилка завантаження TonConnect SDK';
+            return;
+          }
+          initializeTonConnect();
+        });
         return;
       }
       initializeTonConnect();
@@ -205,9 +175,15 @@
           return;
         }
         try {
+          const wallets = await tonConnect.getWallets();
+          const tonkeeper = wallets.find(w => w.appName.toLowerCase() === 'tonkeeper');
+          if (!tonkeeper) {
+            throw new Error('Tonkeeper не підтримується');
+          }
           await tonConnect.connect({
-            universalLink: 'https://app.tonkeeper.com/ton-connect',
-            bridgeUrl: 'https://bridge.tonapi.io/bridge'
+            jsBridgeKey: tonkeeper.jsBridgeKey,
+            universalLink: tonkeeper.universalLink,
+            bridgeUrl: tonkeeper.bridgeUrl || 'https://bridge.tonapi.io/bridge'
           });
           const wallet = tonConnect.account;
           if (wallet && wallet.address) {
@@ -218,7 +194,8 @@
           }
         } catch (error) {
           console.error('Помилка підключення гаманця:', error);
-          document.getElementById('error-message').textContent = 'Не вдалося підключити гаманець';
+          document.getElementById('error-message').textContent = `Не вдалося підключити гаманець: ${error.message}`;
+          walletInfo.textContent = '❌ Помилка підключення гаманця';
         }
       });
 
@@ -232,7 +209,7 @@
           return;
         }
         if (!walletAddress) {
-          walletInfo.textContent = '❌ Спочатку підключіть гаманець';
+          walletInfo.textContent = '❌missed call-to-action' href='https://toncenter.com/api/v2/getAddressInformation?address=${walletAddress}' target='_blank'>https://toncenter.com/api/v2/getAddressInformation?address=${walletAddress}</a>`);
           document.getElementById('error-message').textContent = 'Спочатку підключіть гаманець';
           return;
         }
@@ -284,7 +261,6 @@
                       <a href="${deeplink}">Спробувати ще раз</a>
                     `;
                   } else {
-                    // Припускаємо, що транзакція успішна, якщо гаманець відкрився
                     virtualCoins += amount * 100; // 1 TON = 100 монет
                     localStorage.setItem('virtual_coins', virtualCoins);
                     walletInfo.textContent = `✅ Транзакцію ініційовано! Монети: ${virtualCoins.toFixed(2)}`;
