@@ -1,0 +1,311 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WZNHLTR Swap</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    input, button, select {
+      padding: 12px;
+      font-size: 18px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    button {
+      background: #0088cc;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #006699;
+    }
+    #wallet-info {
+      margin-top: 15px;
+      padding: 15px;
+      background: #f0f0f0;
+      border-radius: 10px;
+      word-break: break-word;
+    }
+    .wallet-selector {
+      display: none;
+      margin-top: 20px;
+    }
+    .wallet-option {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      margin: 5px 0;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .wallet-option:hover {
+      background: #f5f5f5;
+    }
+    .wallet-option img {
+      width: 30px;
+      height: 30px;
+      margin-right: 10px;
+    }
+    #error-message {
+      color: red;
+      font-size: 16px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h2>🔗 Прив’язка гаманця</h2>
+  <button id="connect-wallet-btn">🔌 Підключити гаманець</button>
+  <p id="connected-wallet" style="margin-top: 10px; font-weight: bold;"></p>
+  <p id="error-message"></p>
+
+  <hr style="margin: 30px 0;">
+
+  <h1>WZNHLTR Swap</h1>
+  <p>Введіть суму TON, яку хочете надіслати:</p>
+
+  <input type="number" id="amount" placeholder="Наприклад, 2.5" min="0.01" step="0.01" />
+  <br />
+  <button id="send-btn">💸 Надіслати TON</button>
+
+  <div id="wallet-selector" class="wallet-selector">
+    <h3>Оберіть гаманець:</h3>
+    <div class="wallet-option" data-wallet="tonkeeper">
+      <img src="https://tonkeeper.com/favicon.ico" alt="Tonkeeper">
+      Tonkeeper
+    </div>
+    <div class="wallet-option" data-wallet="tonhub">
+      <img src="https://tonhub.com/favicon.ico" alt="Tonhub">
+      Tonhub
+    </div>
+    <div class="wallet-option" data-wallet="mytonwallet">
+      <img src="https://mytonwallet.io/favicon.ico" alt="MyTonWallet">
+      MyTonWallet
+    </div>
+  </div>
+
+  <div id="wallet-info">Статус: Очікування...</div>
+
+  <script>
+    // Функція для динамічного завантаження скрипту
+    function loadScript(src, callback) {
+      const script = document.createElement('script');
+      script.src = src;
+      script.async = true;
+      script.onload = () => callback(null);
+      script.onerror = () => callback(new Error(`Не вдалося завантажити скрипт: ${src}. Перевірте мережу або блокувальники реклами.`));
+      document.head.appendChild(script);
+    }
+
+    let tonConnect = null;
+    const scriptUrl = 'https://unpkg.com/@tonconnect/sdk@latest/dist/tonconnect-sdk.min.js';
+
+    loadScript(scriptUrl, (error) => {
+      if (error) {
+        console.error(error);
+        document.getElementById('error-message').textContent = error.message;
+        document.getElementById('connect-wallet-btn').disabled = true;
+        document.getElementById('send-btn').disabled = true;
+        document.getElementById('wallet-info').textContent = '❌ Помилка завантаження TonConnect SDK';
+        return;
+      }
+      initializeTonConnect();
+    });
+
+    function initializeTonConnect() {
+      try {
+        tonConnect = new window.TonConnectSDK.TonConnect({
+          manifestUrl: 'https://mrjk0.github.io/tratata/tonconnect-manifest.json'
+        });
+        initApp();
+      } catch (initError) {
+        console.error('Помилка ініціалізації TonConnect:', initError);
+        document.getElementById('error-message').textContent = 'Помилка ініціалізації TonConnect. Перевірте маніфест.';
+        document.getElementById('connect-wallet-btn').disabled = true;
+        document.getElementById('send-btn').disabled = true;
+        document.getElementById('wallet-info').textContent = '❌ Помилка ініціалізації TonConnect';
+      }
+    }
+
+    async function fetchBalance(address) {
+      try {
+        const response = await fetch(`https://toncenter.com/api/v2/getAddressInformation?address=${address}`);
+        const data = await response.json();
+        if (!data.result) throw new Error('Невалідна відповідь від API');
+        return (data.result.balance / 1e9).toFixed(2);
+      } catch (error) {
+        console.error('Помилка отримання балансу:', error);
+        return null;
+      }
+    }
+
+    function initApp() {
+      const connectButton = document.getElementById('connect-wallet-btn');
+      const sendButton = document.getElementById('send-btn');
+      const walletInfo = document.getElementById('wallet-info');
+      const connectedWallet = document.getElementById('connected-wallet');
+      let walletAddress = null;
+      let balance = null;
+      let virtualCoins = parseFloat(localStorage.getItem('virtual_coins')) || 0;
+
+      connectButton.addEventListener('click', async () => {
+        if (!tonConnect) {
+          alert('TonConnect SDK не завантажено. Спробуйте оновити сторінку.');
+          return;
+        }
+        try {
+          await tonConnect.connect({
+            universalLink: 'https://app.tonkeeper.com/ton-connect',
+            bridgeUrl: 'https://bridge.tonapi.io/bridge'
+          });
+          const wallet = tonConnect.account;
+          if (wallet && wallet.address) {
+            walletAddress = wallet.address;
+            balance = await fetchBalance(walletAddress);
+            connectedWallet.textContent = `🔐 Гаманець підключено: ${walletAddress}`;
+            walletInfo.textContent = `Баланс: ${balance !== null ? balance : 'Завантаження...'} TON | Віртуальні монети: ${virtualCoins.toFixed(2)}`;
+          }
+        } catch (error) {
+          console.error('Помилка підключення гаманця:', error);
+          document.getElementById('error-message').textContent = 'Не вдалося підключити гаманець';
+        }
+      });
+
+      sendButton.addEventListener('click', function () {
+        const amountInput = document.getElementById('amount').value;
+        const amount = parseFloat(amountInput);
+
+        if (!amount || amount <= 0) {
+          walletInfo.textContent = '❌ Введіть коректну суму більше 0';
+          document.getElementById('error-message').textContent = 'Введіть коректну суму';
+          return;
+        }
+        if (!walletAddress) {
+          walletInfo.textContent = '❌ Спочатку підключіть гаманець';
+          document.getElementById('error-message').textContent = 'Спочатку підключіть гаманець';
+          return;
+        }
+        if (balance && amount > balance) {
+          walletInfo.textContent = '❌ Недостатньо коштів на балансі';
+          document.getElementById('error-message').textContent = 'Недостатньо коштів';
+          return;
+        }
+
+        document.getElementById('wallet-selector').style.display = 'block';
+        walletInfo.textContent = 'Оберіть гаманець для оплати...';
+      });
+
+      document.querySelectorAll('.wallet-option').forEach(option => {
+        option.addEventListener('click', async function() {
+          const walletType = this.getAttribute('data-wallet');
+          const amount = parseFloat(document.getElementById('amount').value);
+          const nanoTON = Math.floor(amount * 1e9);
+          const recipient = 'UQDFVggEMP0kBquwzmEf7V8e0TEYqVM0W8iFhSn7l-YsabJx';
+
+          let deeplink;
+          switch (walletType) {
+            case 'tonkeeper':
+              deeplink = `https://app.tonkeeper.com/transfer/${recipient}?amount=${nanoTON}`;
+              break;
+            case 'tonhub':
+              deeplink = `https://tonhub.com/transfer/${recipient}?amount=${nanoTON}`;
+              break;
+            case 'mytonwallet':
+              deeplink = `ton://transfer/${recipient}?amount=${nanoTON}`;
+              break;
+          }
+
+          walletInfo.textContent = '🔁 Відкриваємо гаманець...';
+          try {
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = deeplink;
+            document.body.appendChild(iframe);
+
+            setTimeout(() => {
+              document.body.removeChild(iframe);
+              if (!document.hidden) {
+                window.location.href = deeplink;
+                setTimeout(() => {
+                  if (!document.hidden) {
+                    walletInfo.innerHTML = `
+                      ❌ Не вдалося відкрити гаманець.<br>
+                      <a href="${deeplink}">Спробувати ще раз</a>
+                    `;
+                  } else {
+                    // Припускаємо, що транзакція успішна, якщо гаманець відкрився
+                    virtualCoins += amount * 100; // 1 TON = 100 монет
+                    localStorage.setItem('virtual_coins', virtualCoins);
+                    walletInfo.textContent = `✅ Транзакцію ініційовано! Монети: ${virtualCoins.toFixed(2)}`;
+                    document.getElementById('amount').value = '';
+                    setTimeout(async () => {
+                      balance = await fetchBalance(walletAddress);
+                      connectedWallet.textContent = `🔐 Гаманець підключено: ${walletAddress}`;
+                      walletInfo.textContent = `Баланс: ${balance !== null ? balance : 'Завантаження...'} TON | Віртуальні монети: ${virtualCoins.toFixed(2)}`;
+                    }, 4000);
+                  }
+                }, 1000);
+              }
+            }, 500);
+          } catch (error) {
+            console.error('Помилка транзакції:', error);
+            walletInfo.textContent = '❌ Помилка транзакції';
+            document.getElementById('error-message').textContent = 'Помилка транзакції';
+          }
+        });
+      });
+    }
+  </script>
+</body>
+</html>
