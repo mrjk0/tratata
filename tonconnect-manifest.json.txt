@@ -1,7 +1,0 @@
-{
-  "url": "https://www.wznhltr.website",
-  "name": "WZNHLTR Swap",
-  "iconUrl": "https://www.wznhltr.website/favicon.ico",
-  "termsOfUseUrl": "https://www.wznhltr.website/terms",
-  "privacyPolicyUrl": "https://www.wznhltr.website/privacy"
-}
